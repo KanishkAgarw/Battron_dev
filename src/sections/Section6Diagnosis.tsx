@@ -1,0 +1,58 @@
+import { Section } from '../components/Section'
+import { Field } from '../components/Field'
+import { TextInput } from '../components/TextInput'
+import { SelectInput } from '../components/SelectInput'
+import { TextArea } from '../components/TextArea'
+import { ChipGroup } from '../components/ChipGroup'
+import { ACTIONS, ROOTCAUSE_OPTIONS, SUBSYSTEM_OPTIONS } from '../lib/constants'
+import { useJobCard } from '../state/JobCardContext'
+
+const LABEL = 'block text-12 font-semibold text-battron-slate'
+const ROW3 = 'grid grid-cols-3 gap-[8px] xs:grid-cols-2'
+
+export function Section6Diagnosis() {
+  const { data, setField } = useJobCard()
+  const f = data.fields
+  return (
+    <Section number={6} title="Diagnosis & work">
+      <label htmlFor="subsystem" className={LABEL}>
+        Fault localised to
+      </label>
+      <SelectInput
+        id="subsystem"
+        value={f.subsystem}
+        onChange={(v) => setField('subsystem', v)}
+        options={SUBSYSTEM_OPTIONS}
+        className="mt-[6px] mb-[12px]"
+      />
+      <label htmlFor="rootcause" className={LABEL}>
+        Primary root cause
+      </label>
+      <SelectInput
+        id="rootcause"
+        value={f.rootcause}
+        onChange={(v) => setField('rootcause', v)}
+        options={ROOTCAUSE_OPTIONS}
+        className="mt-[6px] mb-[12px]"
+      />
+      <label className={LABEL}>Repair actions performed</label>
+      <ChipGroup group="actions" items={ACTIONS} className="mt-[8px]" />
+      <div className={`${ROW3} mt-[14px]`}>
+        <Field label="SoH incoming % (auto §5)" htmlFor="sohbefore">
+          <TextInput id="sohbefore" value={f.sohbefore} readOnly />
+        </Field>
+        <Field label="SoH after % (auto §8)" htmlFor="sohafter">
+          <TextInput id="sohafter" value={f.sohafter} readOnly />
+        </Field>
+        <Field label="SoH gain (auto)" htmlFor="sohgain">
+          <TextInput id="sohgain" value={f.sohgain} readOnly />
+        </Field>
+      </div>
+      <div className="mt-[12px]">
+        <Field label="Diagnosis notes" htmlFor="fault" full>
+          <TextArea id="fault" value={f.fault} onChange={(v) => setField('fault', v)} />
+        </Field>
+      </div>
+    </Section>
+  )
+}
