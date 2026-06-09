@@ -1,7 +1,5 @@
-import type { Grade } from '../lib/score'
-
 interface GradeChipProps {
-  grade: Grade
+  grade: string
   color: string
 }
 

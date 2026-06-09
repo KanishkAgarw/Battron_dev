@@ -1,8 +1,10 @@
+import { useEffect, useState } from 'react'
+import * as jobsApi from '../lib/api/jobs'
+import type { ApiScoreResult } from '../lib/api/types'
 import { useJobCard } from '../state/JobCardContext'
 import { GradeChip } from './GradeChip'
 import { MetricCard } from './MetricCard'
 import { FlagRow } from './FlagRow'
-import type { FlagColor } from '../lib/score'
 
 interface ScoreModalProps {
   open: boolean
@@ -12,41 +14,68 @@ interface ScoreModalProps {
 const BTN = 'flex-1 rounded-11 px-[8px] py-[13px] text-14 font-extrabold'
 
 export function ScoreModal({ open, onClose }: ScoreModalProps) {
-  const { data, getScore } = useJobCard()
+  const { data, fetchScorePreview } = useJobCard()
+  const [score, setScore] = useState<ApiScoreResult | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!open) {
+      setScore(null)
+      setError('')
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    fetchScorePreview()
+      .then((s) => {
+        if (!cancelled) setScore(s)
+      })
+      .catch(() => {
+        if (!cancelled) setError('Could not load score.')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, fetchScorePreview])
+
   if (!open) return null
 
-  const s = getScore()
   const f = data.fields
-  const outcomeLine = f.outcome !== '—' ? f.outcome : ''
+  const s = score
+  const outcomeLine = s?.outcome_line || (f.outcome !== '—' ? f.outcome : '')
 
-  const resaleFlag: { t: string; c: FlagColor } = s.fit
-    ? { t: '✓ Fit for resale / second-life', c: 'ok' }
-    : s.safety
-      ? { t: '✕ Safety flag — not for resale', c: 'bad' }
-      : { t: '△ Resale with caution', c: 'warn' }
-
-  const whatsapp = () => {
-    const t =
-      '*Battron Battery Score*\n' +
-      f.jcno +
-      '\nGrade *' +
-      s.grade +
-      '* · ' +
-      s.score +
-      '/100' +
-      '\nSoH ' +
-      (s.soh || '—') +
-      '% · ΔV ' +
-      (s.dv != null ? s.dv + 'mV' : '—') +
-      '\nRange ' +
-      s.range +
-      '\nResale: ' +
-      s.resale +
-      '\n' +
-      (s.fit ? 'Fit for resale' : 'Not for resale') +
-      '\nUnderwriting: ' +
-      s.under.t
-    window.open('https://wa.me/?text=' + encodeURIComponent(t), '_blank')
+  const whatsapp = async () => {
+    try {
+      const res = await jobsApi.shareScore(f.jcno)
+      window.open(res.whatsapp_url, '_blank')
+    } catch {
+      if (s) {
+        const t =
+          '*Battron Battery Score*\n' +
+          f.jcno +
+          '\nGrade *' +
+          s.grade +
+          '* · ' +
+          s.score +
+          '/100\nSoH ' +
+          (s.soh || '—') +
+          '% · ΔV ' +
+          (s.dv != null ? s.dv + 'mV' : '—') +
+          '\nRange ' +
+          s.range +
+          '\nResale: ' +
+          s.resale +
+          '\n' +
+          (s.fit_for_resale ? 'Fit for resale' : 'Not for resale') +
+          '\nUnderwriting: ' +
+          s.underwriting.text
+        window.open('https://wa.me/?text=' + encodeURIComponent(t), '_blank')
+      }
+    }
   }
 
   return (
@@ -56,32 +85,44 @@ export function ScoreModal({ open, onClose }: ScoreModalProps) {
           className="rounded-t-18 p-[20px] text-white"
           style={{ background: 'linear-gradient(180deg,#0d0d0d,#16240b)' }}
         >
-          <div className="flex items-center gap-[16px]">
-            <GradeChip grade={s.grade} color={s.gcol} />
-            <div>
-              <h3 className="m-0 text-14 tracking-[1px] text-battron-greenBright">
-                BATTRON SCORE
-              </h3>
-              <div className="my-[2px] text-30 font-black">{s.score} / 100</div>
-              <div className="text-13" style={{ color: '#c9cdd2' }}>
-                {outcomeLine}
+          {loading && (
+            <p className="text-13 text-battron-muted">Calculating score…</p>
+          )}
+          {error && <p className="text-13 text-battron-red">{error}</p>}
+          {s && (
+            <div className="flex items-center gap-[16px]">
+              <GradeChip grade={s.grade} color={s.grade_color} />
+              <div>
+                <h3 className="m-0 text-14 tracking-[1px] text-battron-greenBright">
+                  BATTRON SCORE
+                </h3>
+                <div className="my-[2px] text-30 font-black">{s.score} / 100</div>
+                <div className="text-13" style={{ color: '#c9cdd2' }}>
+                  {outcomeLine}
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
 
-        <div className="grid grid-cols-2 gap-[10px] p-[16px]">
-          <MetricCard label="State of Health" value={s.soh ? s.soh + ' %' : '—'} />
-          <MetricCard
-            label="Cell balance ΔV"
-            value={s.dv != null ? s.dv + ' mV' : '—'}
-          />
-          <MetricCard label="Est. range" value={s.range} />
-          <MetricCard label="Resale / 2nd-life value" value={s.resale} />
-        </div>
+        {s && (
+          <>
+            <div className="grid grid-cols-2 gap-[10px] p-[16px]">
+              <MetricCard label="State of Health" value={s.soh ? s.soh + ' %' : '—'} />
+              <MetricCard
+                label="Cell balance ΔV"
+                value={s.dv != null ? s.dv + ' mV' : '—'}
+              />
+              <MetricCard label="Est. range" value={s.range} />
+              <MetricCard label="Resale / 2nd-life value" value={s.resale} />
+            </div>
 
-        <FlagRow color={s.under.c}>{'Underwriting: ' + s.under.t}</FlagRow>
-        <FlagRow color={resaleFlag.c}>{resaleFlag.t}</FlagRow>
+            <FlagRow color={s.underwriting.flag}>
+              {'Underwriting: ' + s.underwriting.text}
+            </FlagRow>
+            <FlagRow color={s.resale_flag.flag}>{s.resale_flag.text}</FlagRow>
+          </>
+        )}
 
         <div className="flex gap-[8px] px-[16px] pb-[18px]">
           <button
@@ -100,7 +141,8 @@ export function ScoreModal({ open, onClose }: ScoreModalProps) {
           </button>
           <button
             type="button"
-            className={`${BTN} bg-battron-green text-battron-black hover:brightness-95`}
+            disabled={!s}
+            className={`${BTN} bg-battron-green text-battron-black hover:brightness-95 disabled:opacity-50`}
             onClick={whatsapp}
           >
             WhatsApp

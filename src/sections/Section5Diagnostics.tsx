@@ -6,13 +6,14 @@ import { SubHeader } from '../components/SubHeader'
 import { ChipGroup } from '../components/ChipGroup'
 import { CellGrid } from '../components/CellGrid'
 import { SegmentedToggle } from '../components/SegmentedToggle'
-import { REACHED_FULL_OPTIONS, VISUAL, VIS_SAFETY } from '../lib/constants'
 import { useJobCard } from '../state/JobCardContext'
+import { useMeta } from '../state/MetaContext'
 import { useToast } from '../hooks/useToast'
 
 const ROW3 = 'grid grid-cols-3 gap-[8px] xs:grid-cols-2'
 
 export function Section5Diagnostics() {
+  const meta = useMeta()
   const {
     data,
     setField,
@@ -28,7 +29,11 @@ export function Section5Diagnostics() {
   return (
     <Section number={5} title="Diagnostics">
       <SubHeader first>Incoming visual check (technician)</SubHeader>
-      <ChipGroup group="visual" items={VISUAL} warnItems={VIS_SAFETY} />
+      <ChipGroup
+        group="visual"
+        items={meta.visual}
+        warnItems={meta.visual_safety}
+      />
 
       <SubHeader>Multimeter</SubHeader>
       <div className={ROW3}>
@@ -147,7 +152,7 @@ export function Section5Diagnostics() {
             id="reachedfull"
             value={f.reachedfull}
             onChange={(v) => setField('reachedfull', v)}
-            options={REACHED_FULL_OPTIONS}
+            options={meta.reached_full}
           />
         </Field>
       </div>

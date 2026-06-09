@@ -1,19 +1,21 @@
-import { createContext, useContext, useRef, useState, type ReactNode } from 'react'
 import {
-  ACTIONS,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
+import { ApiError } from '../lib/api'
+import * as jobsApi from '../lib/api/jobs'
+import type { ApiScoreResult, JobCardComputed, MetaOptions } from '../lib/api/types'
+import { emptyFields } from '../lib/calc'
+import {
   CHANNEL_OPTIONS,
-  COMPLAINTS,
-  VISUAL,
   type FieldId,
 } from '../lib/constants'
-import { emptyFields, genJob, localISO, recalc } from '../lib/calc'
-import {
-  clearCurrent,
-  loadCurrent,
-  saveCurrent,
-  saveJob as saveJobToStore,
-} from '../lib/storage'
-import { scoreObj, type ScoreResult } from '../lib/score'
+import { useMeta } from './MetaContext'
 import type { Fields, JobData, Part } from '../lib/types'
 
 type ChipGroupKey = 'complaints' | 'visual' | 'actions'
@@ -22,6 +24,8 @@ type CellPhase = 'before' | 'after'
 interface JobCardContextValue {
   data: JobData
   done: boolean
+  loading: boolean
+  saving: boolean
   cellPhase: CellPhase
   cellsGenerated: boolean
   jobNoTop: string
@@ -32,17 +36,17 @@ interface JobCardContextValue {
   setCell: (phase: CellPhase, index: number, value: string) => void
   setCellPhase: (phase: CellPhase) => void
   genCells: () => boolean
-  saveJob: () => number
-  newCard: () => boolean
-  share: () => void
-  getScore: () => ScoreResult
+  saveJob: () => Promise<number>
+  loadSavedJob: (jcno: string) => Promise<boolean>
+  newCard: () => Promise<boolean>
+  share: () => Promise<void>
+  fetchScorePreview: () => Promise<ApiScoreResult>
 }
 
 const JobCardContext = createContext<JobCardContextValue | null>(null)
 
 const emptyPart = (): Part => ({ b: '', s: '', q: '', p: '' })
 
-/** Selects default to their first <option> in the original HTML. */
 const SELECT_DEFAULTS: Partial<Record<FieldId, string>> = {
   channel: CHANNEL_OPTIONS[0],
   financed: 'Unknown',
@@ -53,42 +57,38 @@ const SELECT_DEFAULTS: Partial<Record<FieldId, string>> = {
   outcome: '—',
 }
 
-function withSelectDefaults(fields: Fields): Fields {
-  const f = { ...fields }
-  ;(Object.keys(SELECT_DEFAULTS) as FieldId[]).forEach((k) => {
-    if (!f[k]) f[k] = SELECT_DEFAULTS[k] as string
+function withSelectDefaults(fields: Fields, meta: MetaOptions): Fields {
+  const f = { ...emptyFields(), ...fields }
+  const defaults: Partial<Record<FieldId, string>> = {
+    ...SELECT_DEFAULTS,
+    channel: meta.channel[0] ?? SELECT_DEFAULTS.channel,
+    financed: meta.financed[0] ?? SELECT_DEFAULTS.financed,
+    chem: meta.chemistry[0] ?? SELECT_DEFAULTS.chem,
+    reachedfull: meta.reached_full[0] ?? SELECT_DEFAULTS.reachedfull,
+    subsystem: meta.subsystem[0] ?? SELECT_DEFAULTS.subsystem,
+    rootcause: meta.root_cause[0] ?? SELECT_DEFAULTS.rootcause,
+    outcome: meta.outcome[0] ?? SELECT_DEFAULTS.outcome,
+  }
+  ;(Object.keys(defaults) as FieldId[]).forEach((k) => {
+    if (!f[k]) f[k] = defaults[k] as string
   })
   return f
 }
 
-function freshData(): JobData {
-  return {
-    fields: withSelectDefaults({ ...emptyFields(), jcno: genJob(), datein: localISO() }),
-    complaints: [],
-    visual: [],
-    actions: [],
-    parts: [emptyPart()],
-    cb: [],
-    ca: [],
-  }
-}
-
-/** Bring a stored object up to a complete JobData (matches original apply()). */
-function normalize(saved: JobData): JobData {
-  const fields = withSelectDefaults({ ...emptyFields(), ...(saved.fields || {}) })
-  const parts = saved.parts && saved.parts.length ? saved.parts : [emptyPart()]
+function normalize(job: JobData, meta: MetaOptions): JobData {
+  const fields = withSelectDefaults(job.fields || emptyFields(), meta)
+  const parts = job.parts?.length ? job.parts : [emptyPart()]
   return {
     fields,
-    complaints: saved.complaints || [],
-    visual: saved.visual || [],
-    actions: saved.actions || [],
+    complaints: job.complaints || [],
+    visual: job.visual || [],
+    actions: job.actions || [],
     parts,
-    cb: saved.cb || [],
-    ca: saved.ca || [],
+    cb: job.cb || [],
+    ca: job.ca || [],
   }
 }
 
-/** Storage projection: drop fully-empty part rows (matches original getParts()). */
 function toStored(data: JobData): JobData {
   return {
     ...data,
@@ -96,81 +96,217 @@ function toStored(data: JobData): JobData {
   }
 }
 
-interface CoreState {
-  data: JobData
-  done: boolean
+function applyComputed(
+  computed: JobCardComputed,
+  meta: MetaOptions,
+): { data: JobData; done: boolean } {
+  return {
+    data: normalize(computed.job, meta),
+    done: computed.done,
+  }
 }
 
-function init(): CoreState {
-  const saved = loadCurrent()
-  const base =
-    saved && saved.fields && saved.fields.jcno ? normalize(saved) : freshData()
-  const { fields, done } = recalc(base.fields, base.cb, base.ca, false)
-  return { data: { ...base, fields }, done }
+interface JobCardProviderProps {
+  children: ReactNode
+  initialJcno?: string | null
+  /** When true: DELETE /jobs/current then POST /jobs (dashboard “New job card”). */
+  forceNew?: boolean
 }
 
-const SOURCE: Record<ChipGroupKey, string[]> = {
-  complaints: COMPLAINTS,
-  visual: VISUAL,
-  actions: ACTIONS,
-}
-
-export function JobCardProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<CoreState>(init)
+export function JobCardProvider({
+  children,
+  initialJcno,
+  forceNew = false,
+}: JobCardProviderProps) {
+  const meta = useMeta()
+  const [data, setData] = useState<JobData>(() =>
+    normalize(
+      {
+        fields: emptyFields(),
+        complaints: [],
+        visual: [],
+        actions: [],
+        parts: [emptyPart()],
+        cb: [],
+        ca: [],
+      },
+      meta,
+    ),
+  )
+  const [done, setDone] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [cellPhase, setCellPhase] = useState<CellPhase>('before')
   const timer = useRef<number | undefined>(undefined)
+  const dataRef = useRef(data)
+  dataRef.current = data
 
-  const persist = (data: JobData) => {
-    window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => {
-      saveCurrent(toStored(data))
-    }, 250)
+  const chipSource: Record<ChipGroupKey, string[]> = {
+    complaints: meta.complaints,
+    visual: meta.visual,
+    actions: meta.actions,
   }
 
-  const mutate = (fn: (d: JobData) => JobData) => {
-    setState((prev) => {
-      const nextData = fn(prev.data)
-      const { fields, done } = recalc(
-        nextData.fields,
-        nextData.cb,
-        nextData.ca,
-        prev.done,
-      )
-      const data: JobData = { ...nextData, fields }
-      persist(data)
-      return { data, done }
-    })
-  }
+  const persist = useCallback(
+    (payload: JobData) => {
+      window.clearTimeout(timer.current)
+      timer.current = window.setTimeout(async () => {
+        setSaving(true)
+        try {
+          const computed = await jobsApi.putCurrentDraft(toStored(payload))
+          const next = applyComputed(computed, meta)
+          setData(next.data)
+          setDone(next.done)
+        } catch (err) {
+          if (err instanceof ApiError && err.code === 'NO_DRAFT') {
+            try {
+              await jobsApi.createJob()
+              const computed = await jobsApi.putCurrentDraft(toStored(payload))
+              const next = applyComputed(computed, meta)
+              setData(next.data)
+              setDone(next.done)
+            } catch {
+              /* ignore */
+            }
+          }
+        } finally {
+          setSaving(false)
+        }
+      }, 250)
+    },
+    [meta],
+  )
 
-  const setField = (id: FieldId, value: string) =>
-    mutate((d) => ({ ...d, fields: { ...d.fields, [id]: value } }))
+  useEffect(() => {
+    let cancelled = false
 
-  const toggleChip = (group: ChipGroupKey, value: string) =>
-    mutate((d) => {
-      const set = new Set(d[group])
-      if (set.has(value)) set.delete(value)
-      else set.add(value)
-      return { ...d, [group]: SOURCE[group].filter((x) => set.has(x)) }
-    })
+    async function init() {
+      setLoading(true)
+      try {
+        if (forceNew) {
+          try {
+            await jobsApi.deleteCurrentDraft()
+          } catch {
+            /* no draft */
+          }
+          const created = await jobsApi.createJob()
+          if (!cancelled) {
+            const next = applyComputed(
+              {
+                job: created.job,
+                status: created.status as 'Draft' | 'Done',
+                done: created.done,
+              },
+              meta,
+            )
+            setData(next.data)
+            setDone(next.done)
+          }
+        } else if (initialJcno) {
+          const computed = await jobsApi.getJob(initialJcno)
+          if (!cancelled) {
+            const next = applyComputed(computed, meta)
+            setData(next.data)
+            setDone(next.done)
+          }
+        } else {
+          try {
+            const computed = await jobsApi.getCurrentDraft()
+            if (!cancelled) {
+              const next = applyComputed(computed, meta)
+              setData(next.data)
+              setDone(next.done)
+            }
+          } catch (err) {
+            if (err instanceof ApiError && err.code === 'NO_DRAFT') {
+              const created = await jobsApi.createJob()
+              if (!cancelled) {
+                const next = applyComputed(
+                  {
+                    job: created.job,
+                    status: created.status as 'Draft' | 'Done',
+                    done: created.done,
+                  },
+                  meta,
+                )
+                setData(next.data)
+                setDone(next.done)
+              }
+            } else {
+              throw err
+            }
+          }
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
 
-  const addPart = () => mutate((d) => ({ ...d, parts: [...d.parts, emptyPart()] }))
+    init()
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer.current)
+    }
+  }, [initialJcno, forceNew, meta])
 
-  const updatePart = (index: number, key: keyof Part, value: string) =>
-    mutate((d) => ({
-      ...d,
-      parts: d.parts.map((p, i) => (i === index ? { ...p, [key]: value } : p)),
-    }))
+  const mutate = useCallback(
+    (fn: (d: JobData) => JobData) => {
+      setData((prev) => {
+        const nextData = normalize(fn(prev), meta)
+        persist(nextData)
+        return nextData
+      })
+    },
+    [meta, persist],
+  )
 
-  const setCell = (phase: CellPhase, index: number, value: string) =>
-    mutate((d) => {
-      const key = phase === 'before' ? 'cb' : 'ca'
-      const arr = [...d[key]]
-      arr[index] = value
-      return { ...d, [key]: arr }
-    })
+  const setField = useCallback(
+    (id: FieldId, value: string) =>
+      mutate((d) => ({ ...d, fields: { ...d.fields, [id]: value } })),
+    [mutate],
+  )
 
-  const genCells = (): boolean => {
-    const n = parseInt(state.data.fields.cellqty, 10) || 0
+  const toggleChip = useCallback(
+    (group: ChipGroupKey, value: string) =>
+      mutate((d) => {
+        const set = new Set(d[group])
+        if (set.has(value)) set.delete(value)
+        else set.add(value)
+        return {
+          ...d,
+          [group]: chipSource[group].filter((x) => set.has(x)),
+        }
+      }),
+    [mutate, chipSource],
+  )
+
+  const addPart = useCallback(
+    () => mutate((d) => ({ ...d, parts: [...d.parts, emptyPart()] })),
+    [mutate],
+  )
+
+  const updatePart = useCallback(
+    (index: number, key: keyof Part, value: string) =>
+      mutate((d) => ({
+        ...d,
+        parts: d.parts.map((p, i) => (i === index ? { ...p, [key]: value } : p)),
+      })),
+    [mutate],
+  )
+
+  const setCell = useCallback(
+    (phase: CellPhase, index: number, value: string) =>
+      mutate((d) => {
+        const key = phase === 'before' ? 'cb' : 'ca'
+        const arr = [...d[key]]
+        arr[index] = value
+        return { ...d, [key]: arr }
+      }),
+    [mutate],
+  )
+
+  const genCells = useCallback((): boolean => {
+    const n = parseInt(dataRef.current.fields.cellqty, 10) || 0
     if (n < 1 || n > 64) return false
     mutate((d) => ({
       ...d,
@@ -179,55 +315,77 @@ export function JobCardProvider({ children }: { children: ReactNode }) {
     }))
     setCellPhase('before')
     return true
-  }
+  }, [mutate])
 
-  const saveJob = (): number => saveJobToStore(toStored(state.data))
+  const saveJob = useCallback(async (): Promise<number> => {
+    const stored = toStored(dataRef.current)
+    const jcno = stored.fields.jcno
+    const res = await jobsApi.saveJob(jcno, stored)
+    const next = applyComputed(res.job, meta)
+    setData(next.data)
+    setDone(next.done)
+    return res.total_saved ?? 0
+  }, [meta])
 
-  const newCard = (): boolean => {
-    if (!window.confirm('Start a new blank job card? Current one is auto-saved.'))
+  const loadSavedJob = useCallback(
+    async (jcno: string): Promise<boolean> => {
+      try {
+        const computed = await jobsApi.getJob(jcno)
+        const next = applyComputed(computed, meta)
+        setData(next.data)
+        setDone(next.done)
+        setCellPhase('before')
+        await jobsApi.putCurrentDraft(toStored(next.data))
+        return true
+      } catch {
+        return false
+      }
+    },
+    [meta],
+  )
+
+  const newCard = useCallback(async (): Promise<boolean> => {
+    if (
+      !window.confirm(
+        'Start a new blank job card? Current one is auto-saved.',
+      )
+    )
       return false
-    clearCurrent()
-    const fresh = freshData()
-    const { fields, done } = recalc(fresh.fields, fresh.cb, fresh.ca, false)
-    setState({ data: { ...fresh, fields }, done })
+    window.clearTimeout(timer.current)
+    await jobsApi.deleteCurrentDraft()
+    const created = await jobsApi.createJob()
+    const next = applyComputed(
+      {
+        job: created.job,
+        status: created.status as 'Draft' | 'Done',
+        done: created.done,
+      },
+      meta,
+    )
+    setData(next.data)
+    setDone(next.done)
     setCellPhase('before')
-    persist({ ...fresh, fields })
     return true
-  }
+  }, [meta])
 
-  const share = () => {
-    const o = state.data
-    const f = o.fields
-    const t =
-      'Battron Job Card ' +
-      f.jcno +
-      '\nCustomer: ' +
-      (f.cust || '-') +
-      ' (' +
-      (f.mobile || '-') +
-      ')' +
-      '\nVehicle: ' +
-      (f.vmodel || '-') +
-      ' ' +
-      (f.vreg || '') +
-      '\nComplaint: ' +
-      (o.complaints.join(', ') || '-') +
-      '\nSoH: ' +
-      (f.sohafter || f.soh || '-') +
-      '%' +
-      '\nVerdict: ' +
-      (f.verdict || '-')
-    window.open('https://wa.me/?text=' + encodeURIComponent(t), '_blank')
-  }
+  const share = useCallback(async (): Promise<void> => {
+    const jcno = dataRef.current.fields.jcno
+    const res = await jobsApi.shareJob(jcno)
+    window.open(res.whatsapp_url, '_blank')
+  }, [])
 
-  const getScore = () => scoreObj(state.data)
+  const fetchScorePreview = useCallback(async (): Promise<ApiScoreResult> => {
+    return jobsApi.previewScore(toStored(dataRef.current))
+  }, [])
 
-  const cellsGenerated = state.data.cb.length > 0 || state.data.ca.length > 0
-  const jobNoTop = (state.data.fields.jcno || 'JOB —').slice(0, 16)
+  const cellsGenerated = data.cb.length > 0 || data.ca.length > 0
+  const jobNoTop = (data.fields.jcno || 'JOB —').slice(0, 16)
 
   const value: JobCardContextValue = {
-    data: state.data,
-    done: state.done,
+    data,
+    done,
+    loading,
+    saving,
     cellPhase,
     cellsGenerated,
     jobNoTop,
@@ -239,12 +397,15 @@ export function JobCardProvider({ children }: { children: ReactNode }) {
     setCellPhase,
     genCells,
     saveJob,
+    loadSavedJob,
     newCard,
     share,
-    getScore,
+    fetchScorePreview,
   }
 
-  return <JobCardContext.Provider value={value}>{children}</JobCardContext.Provider>
+  return (
+    <JobCardContext.Provider value={value}>{children}</JobCardContext.Provider>
+  )
 }
 
 export function useJobCard(): JobCardContextValue {

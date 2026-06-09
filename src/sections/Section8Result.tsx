@@ -4,11 +4,12 @@ import { TextInput } from '../components/TextInput'
 import { SelectInput } from '../components/SelectInput'
 import { TextArea } from '../components/TextArea'
 import { TimeField } from '../components/TimeField'
-import { OUTCOME_OPTIONS } from '../lib/constants'
 import { localISO } from '../lib/calc'
 import { useJobCard } from '../state/JobCardContext'
+import { useMeta } from '../state/MetaContext'
 
 export function Section8Result() {
+  const meta = useMeta()
   const { data, setField } = useJobCard()
   const f = data.fields
   return (
@@ -65,7 +66,7 @@ export function Section8Result() {
             id="outcome"
             value={f.outcome}
             onChange={(v) => setField('outcome', v)}
-            options={OUTCOME_OPTIONS}
+            options={meta.outcome}
           />
         </Field>
       </div>

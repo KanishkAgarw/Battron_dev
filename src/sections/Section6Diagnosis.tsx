@@ -4,13 +4,14 @@ import { TextInput } from '../components/TextInput'
 import { SelectInput } from '../components/SelectInput'
 import { TextArea } from '../components/TextArea'
 import { ChipGroup } from '../components/ChipGroup'
-import { ACTIONS, ROOTCAUSE_OPTIONS, SUBSYSTEM_OPTIONS } from '../lib/constants'
 import { useJobCard } from '../state/JobCardContext'
+import { useMeta } from '../state/MetaContext'
 
 const LABEL = 'block text-12 font-semibold text-battron-slate'
 const ROW3 = 'grid grid-cols-3 gap-[8px] xs:grid-cols-2'
 
 export function Section6Diagnosis() {
+  const meta = useMeta()
   const { data, setField } = useJobCard()
   const f = data.fields
   return (
@@ -22,7 +23,7 @@ export function Section6Diagnosis() {
         id="subsystem"
         value={f.subsystem}
         onChange={(v) => setField('subsystem', v)}
-        options={SUBSYSTEM_OPTIONS}
+        options={meta.subsystem}
         className="mt-[6px] mb-[12px]"
       />
       <label htmlFor="rootcause" className={LABEL}>
@@ -32,11 +33,11 @@ export function Section6Diagnosis() {
         id="rootcause"
         value={f.rootcause}
         onChange={(v) => setField('rootcause', v)}
-        options={ROOTCAUSE_OPTIONS}
+        options={meta.root_cause}
         className="mt-[6px] mb-[12px]"
       />
       <label className={LABEL}>Repair actions performed</label>
-      <ChipGroup group="actions" items={ACTIONS} className="mt-[8px]" />
+      <ChipGroup group="actions" items={meta.actions} className="mt-[8px]" />
       <div className={`${ROW3} mt-[14px]`}>
         <Field label="SoH incoming % (auto §5)" htmlFor="sohbefore">
           <TextInput id="sohbefore" value={f.sohbefore} readOnly />

@@ -1,4 +1,4 @@
-import type { FlagColor } from '../lib/score'
+import type { FlagColor } from '../lib/api/types'
 
 interface FlagRowProps {
   color: FlagColor

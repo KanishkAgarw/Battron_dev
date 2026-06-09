@@ -44,3 +44,7 @@ export function saveJob(data: JobData): number {
   }
   return jobs.length
 }
+
+export function getJobByJcno(jcno: string): JobData | null {
+  return listJobs().find((j) => j.fields?.jcno === jcno) ?? null
+}

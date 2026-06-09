@@ -3,10 +3,11 @@ import { Field } from '../components/Field'
 import { TextInput } from '../components/TextInput'
 import { TextArea } from '../components/TextArea'
 import { ChipGroup } from '../components/ChipGroup'
-import { COMPLAINTS } from '../lib/constants'
 import { useJobCard } from '../state/JobCardContext'
+import { useMeta } from '../state/MetaContext'
 
 export function Section4Complaint() {
+  const meta = useMeta()
   const { data, setField } = useJobCard()
   const f = data.fields
   return (
@@ -14,7 +15,7 @@ export function Section4Complaint() {
       <label className="text-12 font-semibold text-battron-slate">
         What is the driver reporting? (tap all that apply)
       </label>
-      <ChipGroup group="complaints" items={COMPLAINTS} className="mt-[8px]" />
+      <ChipGroup group="complaints" items={meta.complaints} className="mt-[8px]" />
       <div className="mt-[12px] grid grid-cols-1 gap-[10px]">
         <Field label="Reported backup now (km / charge)" htmlFor="repkm">
           <TextInput

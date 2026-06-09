@@ -1,50 +1,58 @@
 # Battron — Battery Job Card
 
-A pixel-perfect, frontend-only re-implementation of the Battron Battery Job Card
-mobile web app, built with **React + TypeScript + Vite + Tailwind CSS**.
+React + TypeScript + Vite + Tailwind frontend for the Battron battery-repair job card and leads dashboard.
 
-There is **no backend** — all state lives in React state and is persisted to
-`localStorage` (`btn_current` for the working draft, `btn_jobs` for saved jobs).
+**Backend:** [Battron_Service_Platform_Backend](../Battron_Service_Platform_Backend) (FastAPI). The UI talks to `http://localhost:8000/api/v1` by default.
 
-The original single-file reference implementation is preserved at
-`Battron_Job_Card.html` and remains the source of truth for design and logic.
+## Run (frontend + backend)
 
-## Run
+1. Start the API (from the backend repo):
+
+   ```bash
+   uvicorn app.main:app --reload --port 8000
+   ```
+
+2. Configure the frontend (`.env`):
+
+   ```
+   VITE_API_BASE_URL=http://localhost:8000/api/v1
+   ```
+
+3. Start the UI:
+
+   ```bash
+   npm install
+   npm run dev
+   ```
+
+## Auth
+
+- **Login:** `POST /auth/login` — use seeded admin or register a technician.
+- **Register:** `/register` → `POST /auth/register` (technician role).
+- JWT is stored in `localStorage` (`battron_access_token`).
+
+## Routes
+
+| Path | Screen |
+|------|--------|
+| `/login` | Sign in |
+| `/register` | Create account |
+| `/dashboard` | Leads list |
+| `/job-card` | Job card form |
+| `/job-card?jcno=…` | Open saved job |
+| `/job-card?new=1` | New blank card |
+
+## Scripts
 
 ```bash
-npm install
-npm run dev
+npm run dev        # Vite dev server
+npm run build      # tsc + production build
+npm run typecheck
+npm run preview
 ```
 
-Then open the printed local URL.
+## API client
 
-## Other scripts
+`src/lib/api/` — typed client for auth, jobs, leads, meta, and score endpoints. See backend `FRONTEND_API_INTEGRATION_PROMPT.md` for the full contract.
 
-```bash
-npm run build      # type-check (tsc -b) + production build
-npm run typecheck  # type-check only (tsc --noEmit)
-npm run preview    # preview the production build
-```
-
-## Project structure
-
-```
-src/
-  main.tsx, App.tsx
-  styles/globals.css          Tailwind directives, body base, @media print
-  state/JobCardContext.tsx    all form state, chips, parts, cell grids, persistence
-  lib/                        constants, pure calc, Battron Score, localStorage
-  components/                 reusable UI primitives (one per file)
-  sections/                   the 8 accordion sections
-  hooks/useToast.ts           toast context
-```
-
-## Notes / deviations
-
-- The logo is an inline SVG `BATTRON` wordmark placeholder
-  (`src/components/Logo.tsx`) — swap it for a real asset later.
-- `<select>` controls always carry the green outline + border, matching the
-  original CSS rule `select,input:focus,textarea:focus{...}`.
-- Text inputs intentionally have **no** hover state (the original defines none);
-  buttons, chips, the segmented toggle, "Now" and dashed "add" buttons all have
-  hover and focus states.
+The original HTML reference remains at `Battron_Job_Card.html`.

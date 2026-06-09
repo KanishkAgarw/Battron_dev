@@ -3,11 +3,12 @@ import { Field } from '../components/Field'
 import { TextInput } from '../components/TextInput'
 import { SelectInput } from '../components/SelectInput'
 import { TimeField } from '../components/TimeField'
-import { CHANNEL_OPTIONS } from '../lib/constants'
+import { useMeta } from '../state/MetaContext'
 import { localISO } from '../lib/calc'
 import { useJobCard } from '../state/JobCardContext'
 
 export function Section1JobCustomer() {
+  const meta = useMeta()
   const { data, setField } = useJobCard()
   const f = data.fields
   return (
@@ -37,7 +38,7 @@ export function Section1JobCustomer() {
             id="channel"
             value={f.channel}
             onChange={(v) => setField('channel', v)}
-            options={CHANNEL_OPTIONS}
+            options={meta.channel}
           />
         </Field>
         <Field label="Customer name" htmlFor="cust">

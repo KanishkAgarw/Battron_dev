@@ -2,10 +2,11 @@ import { Section } from '../components/Section'
 import { Field } from '../components/Field'
 import { TextInput } from '../components/TextInput'
 import { SelectInput } from '../components/SelectInput'
-import { CHEM_OPTIONS } from '../lib/constants'
 import { useJobCard } from '../state/JobCardContext'
+import { useMeta } from '../state/MetaContext'
 
 export function Section3BatteryId() {
+  const meta = useMeta()
   const { data, setField } = useJobCard()
   const f = data.fields
   return (
@@ -19,7 +20,7 @@ export function Section3BatteryId() {
             id="chem"
             value={f.chem}
             onChange={(v) => setField('chem', v)}
-            options={CHEM_OPTIONS}
+            options={meta.chemistry}
           />
         </Field>
         <Field label="Pack volt (V)" htmlFor="volt">

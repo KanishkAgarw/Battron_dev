@@ -15,6 +15,9 @@ body {
   background: #f5f8ee;
   color: #1c1c1c;
   font-size: 15px;
+}
+
+.job-card-layout {
   padding-bottom: 84px;
 }
 

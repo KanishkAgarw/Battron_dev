@@ -2,10 +2,11 @@ import { Section } from '../components/Section'
 import { Field } from '../components/Field'
 import { TextInput } from '../components/TextInput'
 import { SelectInput } from '../components/SelectInput'
-import { FINANCED_OPTIONS } from '../lib/constants'
 import { useJobCard } from '../state/JobCardContext'
+import { useMeta } from '../state/MetaContext'
 
 export function Section2Financing() {
+  const meta = useMeta()
   const { data, setField } = useJobCard()
   const f = data.fields
   return (
@@ -16,7 +17,7 @@ export function Section2Financing() {
             id="financed"
             value={f.financed}
             onChange={(v) => setField('financed', v)}
-            options={FINANCED_OPTIONS}
+            options={meta.financed}
           />
         </Field>
         <Field label="Lender / NBFC" htmlFor="lender">
